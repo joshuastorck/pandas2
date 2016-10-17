@@ -20,10 +20,12 @@ class PANDAS_EXPORT IntegerArray : public NumericArray {
  public:
   int64_t GetNullCount() override;
 
+  std::shared_ptr<Buffer> data_buffer() const;
+  std::shared_ptr<Buffer> valid_buffer() const;
+
  protected:
-  IntegerArray(const TypePtr type, int64_t length, const std::shared_ptr<Buffer>& data);
   IntegerArray(const TypePtr type, int64_t length, const std::shared_ptr<Buffer>& data,
-      const std::shared_ptr<Buffer>& valid_bits);
+      const std::shared_ptr<Buffer>& valid_bits = nullptr);
 
   std::shared_ptr<Buffer> data_;
   std::shared_ptr<Buffer> valid_bits_;
@@ -34,7 +36,8 @@ class PANDAS_EXPORT IntegerArrayImpl : public IntegerArray {
  public:
   using T = typename TYPE::c_type;
 
-  IntegerArrayImpl(int64_t length, const std::shared_ptr<Buffer>& data);
+  IntegerArrayImpl(int64_t length, const std::shared_ptr<Buffer>& data,
+      const std::shared_ptr<Buffer>& valid_bits = nullptr);
 
   Status Copy(int64_t offset, int64_t length, std::shared_ptr<Array>* out) const override;
 
@@ -98,5 +101,14 @@ extern template class PANDAS_EXPORT IntegerArrayImpl<Int64Type>;
 extern template class PANDAS_EXPORT IntegerArrayImpl<UInt64Type>;
 extern template class PANDAS_EXPORT FloatingArrayImpl<FloatType>;
 extern template class PANDAS_EXPORT FloatingArrayImpl<DoubleType>;
+
+class BooleanArray : public UInt8Array {
+ public:
+  BooleanArray(int64_t length, const std::shared_ptr<Buffer>& data,
+      const std::shared_ptr<Buffer>& valid_bits = nullptr);
+
+  PyObject* GetItem(int64_t i) override;
+  Status SetItem(int64_t i, PyObject* val) override;
+};
 
 }  // namespace pandas
