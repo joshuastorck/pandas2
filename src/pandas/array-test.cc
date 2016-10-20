@@ -12,6 +12,7 @@
 #include "pandas/array.h"
 #include "pandas/common.h"
 #include "pandas/memory.h"
+#include "pandas/meta/typelist.h"
 #include "pandas/test-util.h"
 #include "pandas/type.h"
 #include "pandas/types/numeric.h"
@@ -43,6 +44,128 @@ TEST_F(TestArray, Attrs) {
   ASSERT_EQ(DataType::FLOAT64, array_->type_id());
 
   ASSERT_EQ(values_.size(), array_->length());
+}
+
+template <typename LEFT_ARRAY_TYPE, typename RIGHT_ARRAY_TYPE, std::size_t LENGTH = 10>
+class OperatorTestData {
+ public:
+  OperatorTestData()
+      : left_buffer_(std::make_shared<Buffer>(
+            reinterpret_cast<const std::uint8_t*>(Initialize(left_data_)),
+            LENGTH * sizeof(LEFT_C_TYPE))),
+        right_buffer_(std::make_shared<Buffer>(
+            reinterpret_cast<const std::uint8_t*>(Initialize(right_data_)),
+            LENGTH * sizeof(RIGHT_C_TYPE))),
+        left_array_(LENGTH, left_buffer_),
+        right_array_(LENGTH, right_buffer_) {}
+
+  template <typename C_TYPE>
+  static C_TYPE* Initialize(C_TYPE (&value)[LENGTH]) {
+    for (auto ii = 0; ii < LENGTH; ++ii) {
+      // Start at 1 so that we don't get FPE with operator/
+      value[ii] = static_cast<C_TYPE>(ii + 1);
+    }
+    return value;
+  }
+
+  using LEFT_C_TYPE = typename LEFT_ARRAY_TYPE::T;
+
+  using RIGHT_C_TYPE = typename RIGHT_ARRAY_TYPE::T;
+
+  LEFT_C_TYPE left_data_[LENGTH];
+
+  RIGHT_C_TYPE right_data_[LENGTH];
+
+  std::shared_ptr<Buffer> left_buffer_;
+
+  std::shared_ptr<Buffer> right_buffer_;
+
+  LEFT_ARRAY_TYPE left_array_;
+
+  RIGHT_ARRAY_TYPE right_array_;
+};
+
+template <typename OPERATOR, typename INPLACE_OPERATOR, std::size_t LENGTH = 10>
+class TestInplaceOperator {
+ public:
+  TestInplaceOperator(OPERATOR& operation, INPLACE_OPERATOR& inplace_operation)
+      : operation_(operation), inplace_operation_(inplace_operation) {}
+
+  template <typename PAIR>
+  void operator()() {
+    using FIRST = typename std::tuple_element<0, PAIR>::type;
+    using SECOND = typename std::tuple_element<1, PAIR>::type;
+    OperatorTestData<FIRST, SECOND> test_data;
+    auto result = operation_(test_data.left_array_, test_data.right_array_);
+    for (auto ii = 0; ii < test_data.left_array_.length(); ++ii) {
+      ASSERT_EQ(result.data()[ii],
+          operation_(test_data.left_data_[ii], test_data.right_data_[ii]));
+    }
+    inplace_operation_(test_data.left_array_, test_data.right_array_);
+    for (auto ii = 0; ii < test_data.left_array_.length(); ++ii) {
+      ASSERT_EQ(test_data.left_array_.data()[ii],
+          operation_(test_data.left_data_[ii], test_data.right_data_[ii]));
+    }
+    for (auto ii = 0; ii < test_data.left_array_.length(); ++ii) {
+      ASSERT_EQ(test_data.left_array_.data()[ii], result.data()[ii]);
+    }
+  }
+
+ private:
+  OPERATOR& operation_;
+
+  INPLACE_OPERATOR inplace_operation_;
+};
+
+template <typename OPERATOR, std::size_t LENGTH = 10>
+class TestOperator {
+ public:
+  TestOperator(OPERATOR& operation) : operation_(operation) {}
+
+  template <typename PAIR>
+  void operator()() {
+    using FIRST = typename std::tuple_element<0, PAIR>::type;
+    using SECOND = typename std::tuple_element<1, PAIR>::type;
+    OperatorTestData<FIRST, SECOND> test_data;
+    auto result = operation_(test_data.left_array_, test_data.right_array_);
+    for (auto ii = 0; ii < test_data.left_array_.length(); ++ii) {
+      ASSERT_EQ(result.data()[ii],
+          operation_(test_data.left_data_[ii], test_data.right_data_[ii]));
+    }
+  }
+
+ private:
+  OPERATOR& operation_;
+};
+
+using IntegerTypes = TypeList<IntegerArray<UInt8Type>, IntegerArray<UInt16Type>,
+    IntegerArray<UInt32Type>, IntegerArray<UInt64Type>, IntegerArray<Int8Type>,
+    IntegerArray<Int16Type>, IntegerArray<Int32Type>, IntegerArray<Int64Type>>;
+
+using FloatingPointTypes = TypeList<FloatingArray<FloatType>, FloatingArray<DoubleType>>;
+
+using NumericTypes = decltype(IntegerTypes() + FloatingPointTypes());
+
+TEST(TestArrayOperators, Addition) {
+  auto plus = [](auto const& left, auto const& right) { return left + right; };
+  auto plus_inplace = [](auto& left, auto const& right) { left += right; };
+
+  static constexpr auto addition_tests =
+      FloatingPointTypes().CartesianProduct(NumericTypes());
+  TestInplaceOperator<decltype(plus), decltype(plus_inplace)> tester(plus, plus_inplace);
+  addition_tests.Iterate(tester);
+}
+
+TEST(TestArrayOperators, Division) {
+  auto divide = [](auto const& left, auto const& right) { return left / right; };
+  auto divide_inplace = [](auto& left, auto const& right) { left /= right; };
+
+  TestOperator<decltype(divide)> test(divide);
+  IntegerTypes().CartesianProduct(IntegerTypes()).Iterate(test);
+
+  TestInplaceOperator<decltype(divide), decltype(divide_inplace)> inplace_test(
+      divide, divide_inplace);
+  FloatingPointTypes().CartesianProduct(NumericTypes()).Iterate(inplace_test);
 }
 
 // ----------------------------------------------------------------------

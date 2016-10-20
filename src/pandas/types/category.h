@@ -20,7 +20,9 @@ struct CategoryType : public DataType {
 
   std::string ToString() const override;
 
-  std::shared_ptr<DataType> category_type() const { return categories_.data()->type(); }
+  std::shared_ptr<const DataType> category_type() const {
+    return categories_.data()->type();
+  }
 
   const ArrayView& categories() const { return categories_; }
 
@@ -30,14 +32,15 @@ struct CategoryType : public DataType {
 
 class CategoryArray : public Array {
  public:
+  CategoryArray(ArrayView codes, const std::shared_ptr<CategoryType>& type);
+
   const ArrayView& codes() const { return codes_; }
 
-  const ArrayView& categories() const {
-    return static_cast<CategoryType*>(type_.get())->categories();
-  }
+  const ArrayView& categories() const { return type_->categories(); }
 
  private:
   ArrayView codes_;
+  std::shared_ptr<CategoryType> type_;
 };
 
 }  // namespace pandas

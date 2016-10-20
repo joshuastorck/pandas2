@@ -20,27 +20,60 @@ namespace pandas {
 // Generic numeric class
 
 template <typename TYPE>
-NumericArray<TYPE>::NumericArray(
-    const DataTypePtr& type, int64_t length, const std::shared_ptr<Buffer>& data)
-    : Array(type, length), data_(data) {}
+NumericArray<TYPE>::NumericArray(const DataTypePtr& type, int64_t length, int64_t offset,
+    const std::shared_ptr<Buffer>& data)
+    : type_(type), length_(length), offset_(offset), data_(data) {}
+
+template <typename TYPE>
+NumericArray<TYPE>::NumericArray(const NumericArray& other) = default;
+
+template <typename TYPE>
+NumericArray<TYPE>::NumericArray(NumericArray&& other) = default;
 
 template <typename TYPE>
 auto NumericArray<TYPE>::data() const -> const T* {
-  return reinterpret_cast<const T*>(data_->data());
+  return reinterpret_cast<const T*>(data_->data()) + offset_;
 }
 
 template <typename TYPE>
 auto NumericArray<TYPE>::mutable_data() const -> T* {
   auto mutable_buf = static_cast<MutableBuffer*>(data_.get());
-  return reinterpret_cast<T*>(mutable_buf->mutable_data());
+  return reinterpret_cast<T*>(mutable_buf->mutable_data()) + offset_;
+}
+
+template <typename TYPE>
+TypePtr NumericArray<TYPE>::type() const {
+  return type_;
+}
+
+template <typename TYPE>
+Status NumericArray<TYPE>::EnsureMutableAndCheckChange(bool& changed) {
+  if (this->data_.use_count() == 1) {
+    changed = false;
+    return Status::OK();
+  }
+  changed = true;
+  std::shared_ptr<Buffer> new_data;
+  RETURN_NOT_OK(this->data_->Copy(
+      this->offset_, this->length_ * sizeof(typename TYPE::c_type), &new_data));
+  this->data_ = new_data;
+  this->offset_ = 0;
+  return Status::OK();
 }
 
 // ----------------------------------------------------------------------
 // Floating point class
 
 template <typename TYPE>
-FloatingArray<TYPE>::FloatingArray(int64_t length, const std::shared_ptr<Buffer>& data)
-    : NumericArray<TYPE>(TYPE::SINGLETON, length, data) {}
+FloatingArray<TYPE>::FloatingArray(
+    int64_t length, const std::shared_ptr<Buffer>& data, int64_t offset)
+    : NumericArray<TYPE>(TYPE::SINGLETON, length, offset, data) {}
+
+template <typename TYPE>
+FloatingArray<TYPE>::FloatingArray(const FloatingArray& other) = default;
+
+template <typename TYPE>
+FloatingArray<TYPE>::FloatingArray(FloatingArray&& other) = default;
 
 template <typename TYPE>
 int64_t FloatingArray<TYPE>::GetNullCount() {
@@ -80,20 +113,28 @@ bool FloatingArray<TYPE>::owns_data() const {
 template class FloatingArray<FloatType>;
 template class FloatingArray<DoubleType>;
 
-// ----------------------------------------------------------------------
-// Types integers
+template class NumericArray<FloatType>;
+template class NumericArray<DoubleType>;
 
 // ----------------------------------------------------------------------
 // Typed integers
 
 template <typename TYPE>
-IntegerArray<TYPE>::IntegerArray(int64_t length, const std::shared_ptr<Buffer>& data)
-    : IntegerArray(length, data, nullptr) {}
+IntegerArray<TYPE>::IntegerArray(
+    int64_t length, const std::shared_ptr<Buffer>& data, int64_t offset)
+    : IntegerArray(length, data, nullptr, offset) {}
 
 template <typename TYPE>
 IntegerArray<TYPE>::IntegerArray(int64_t length, const std::shared_ptr<Buffer>& data,
-    const std::shared_ptr<Buffer>& valid_bits)
-    : NumericArray<TYPE>(TYPE::SINGLETON, length, data), valid_bits_(valid_bits) {}
+    const std::shared_ptr<Buffer>& valid_bits, int64_t offset)
+    : NumericArray<TYPE>(TYPE::SINGLETON, length, offset, data),
+      valid_bits_(valid_bits) {}
+
+template <typename TYPE>
+IntegerArray<TYPE>::IntegerArray(const IntegerArray& other) = default;
+
+template <typename TYPE>
+IntegerArray<TYPE>::IntegerArray(IntegerArray&& other) = default;
 
 template <typename TYPE>
 int64_t IntegerArray<TYPE>::GetNullCount() {
@@ -126,12 +167,14 @@ Status IntegerArray<TYPE>::Copy(
   std::shared_ptr<Buffer> copied_data;
   std::shared_ptr<Buffer> copied_valid_bits;
 
-  RETURN_NOT_OK(this->data_->Copy(offset * itemsize, length * itemsize, &copied_data));
+  RETURN_NOT_OK(this->data_->Copy(
+      (this->offset_ + offset) * itemsize, length * itemsize, &copied_data));
 
   if (valid_bits_) {
-    RETURN_NOT_OK(CopyBitmap(this->data_, offset, length, &copied_valid_bits));
+    RETURN_NOT_OK(CopyBitmap(
+        this->valid_bits_, this->offset_ + offset, length, &copied_valid_bits));
   }
-  *out = std::make_shared<FloatingArray<TYPE>>(length, copied_data);
+  *out = std::make_shared<IntegerArray<TYPE>>(length, copied_data);
   return Status::OK();
 }
 
@@ -176,6 +219,21 @@ Status IntegerArray<TYPE>::SetItem(int64_t i, PyObject* val) {
   return Status::OK();
 }
 
+template <typename TYPE>
+Status IntegerArray<TYPE>::EnsureMutable() {
+  bool changed;
+  RETURN_NOT_OK(NumericArray<TYPE>::EnsureMutableAndCheckChange(changed));
+  if (!changed) { return Status::OK(); }
+  // Copy the valid bits
+  if (valid_bits_) {
+    std::shared_ptr<Buffer> new_valid_bits;
+    RETURN_NOT_OK(
+        CopyBitmap(this->valid_bits_, this->offset_, this->length_, &new_valid_bits));
+    this->valid_bits_ = std::move(new_valid_bits);
+  }
+  return Status::OK();
+}
+
 // Instantiate templates
 template class IntegerArray<UInt8Type>;
 template class IntegerArray<Int8Type>;
@@ -185,5 +243,14 @@ template class IntegerArray<UInt32Type>;
 template class IntegerArray<Int32Type>;
 template class IntegerArray<UInt64Type>;
 template class IntegerArray<Int64Type>;
+
+template class NumericArray<UInt8Type>;
+template class NumericArray<Int8Type>;
+template class NumericArray<UInt16Type>;
+template class NumericArray<Int16Type>;
+template class NumericArray<UInt32Type>;
+template class NumericArray<Int32Type>;
+template class NumericArray<UInt64Type>;
+template class NumericArray<Int64Type>;
 
 }  // namespace pandas

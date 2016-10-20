@@ -74,7 +74,7 @@ endif()
 #     GCC cannot always verify whether strict aliasing rules are indeed followed due to
 #     fundamental limitations in escape analysis, which can result in subtle bad code generation.
 #     This has a small perf hit but worth it to avoid hard to debug crashes.
-set(CXX_COMMON_FLAGS "-std=c++11 -fno-strict-aliasing -msse4.2 -Wall -Wno-sign-compare -Wno-deprecated -pthread -D__STDC_FORMAT_MACROS")
+set(CXX_COMMON_FLAGS "-std=c++1y -fno-strict-aliasing -msse4.2 -Wall -Wno-sign-compare -Wno-deprecated -pthread -D__STDC_FORMAT_MACROS")
 
 # compiler flags for different build types (run 'cmake -DCMAKE_BUILD_TYPE=<type> .')
 # For all builds:
@@ -642,6 +642,7 @@ set(PANDAS_TEST_LINK_LIBS ${PANDAS_MIN_TEST_LIBS})
 ############################################################
 
 add_subdirectory(src/pandas)
+add_subdirectory(src/pandas/meta)
 add_subdirectory(src/pandas/util)
 
 set(PANDAS_SRCS

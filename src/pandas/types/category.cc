@@ -5,6 +5,9 @@
 
 namespace pandas {
 
+CategoryArray::CategoryArray(ArrayView codes, const std::shared_ptr<CategoryType>& type)
+    : codes_(codes), type_(type) {}
+
 std::string CategoryType::ToString() const {
   std::stringstream s;
   s << "category<" << category_type()->ToString() << ">";

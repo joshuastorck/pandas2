@@ -20,9 +20,19 @@ class Array {
  public:
   virtual ~Array() {}
 
-  int64_t length() const { return length_; }
-  std::shared_ptr<DataType> type() const { return type_; }
-  DataType::TypeId type_id() const { return type_->type(); }
+  virtual int64_t length() const = 0;
+  // There are two methods to obtain the data type.
+  // The signature without a shared_ptr allows sub-classes
+  // to have a covariant return type, which eliminates the
+  // need/danger of doing a static_cast when dealing with
+  // a concrete sub-class. Ideally, the shared_ptr signature
+  // would suffice, but the compiler cannot treat a shared_ptr
+  // to a base class and a shared_ptr to a subclass as a
+  // covariant return type.
+  virtual TypePtr type() const = 0;
+  virtual const DataType& type_reference() const = 0;
+
+  DataType::TypeId type_id() const { return type()->type(); }
 
   // Copy a section of the array into a new output array
   virtual Status Copy(
@@ -42,13 +52,10 @@ class Array {
   virtual bool owns_data() const = 0;
 
  protected:
-  std::shared_ptr<DataType> type_;
-  int64_t length_;
+  Array() {}
 
-  Array(const std::shared_ptr<DataType>& type, int64_t length);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(Array);
+  Array(const Array& other) = default;
+  Array(Array&& other) = default;
 };
 
 // An object that is a view on a section of another array (possibly the whole
